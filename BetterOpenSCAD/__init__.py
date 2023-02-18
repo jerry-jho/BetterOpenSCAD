@@ -5,6 +5,8 @@ import tempfile
 import os
 import subprocess
 
+g_segments = int(os.getenv('SCAD_SEGMENT', 180))
+
 
 def T(x, y=0, z=0):
     if isinstance(x, (list, tuple)):
@@ -21,7 +23,7 @@ def R(x, y=0, z=0):
 def DRILL(x: float, y: float, r: float):
 
     H = 1000
-    return down(100)(forward(y)(right(x)(cylinder(r, H, segments=180))))
+    return down(100)(forward(y)(right(x)(cylinder(r, H, segments=g_segments))))
 
 
 def X(t):
@@ -57,7 +59,7 @@ def CUBE(w, h=None, d=None, x=0, y=0, z=0):
 
 
 def CYLINDER(r, h, x=0, y=0, z=0):
-    return translate([x, y, z])(cylinder(r, h, segments=180))
+    return translate([x, y, z])(cylinder(r, h, segments=g_segments))
 
 
 def TEXT(t, s, x=0, y=0, z=0):
@@ -80,6 +82,7 @@ def RENDER(obj, output=None):
                 os.unlink(output)
             except Exception:
                 pass
+            print("Segments: ", g_segments)
             fp = tempfile.NamedTemporaryFile(delete=False)
             fp.write(v.encode(encoding='UTF-8'))
             name = fp.name
@@ -89,3 +92,57 @@ def RENDER(obj, output=None):
             print("Output:", output)
     else:
         print(v)
+
+
+def STL2OBJ(stl_file, obj_file):
+    from stl import mesh
+    import math
+    m = mesh.Mesh.from_file(stl_file)
+    m.rotate([0.5, 0.0, 0.0], math.radians(90))
+
+    vectors = m.vectors
+    normals = m.normals
+    vectors_key_list = []
+    vectors_list = []
+    normals_key_list = []
+    normals_list = []
+    triangle_list = []
+    for i, vector in enumerate(vectors):
+        one_triangle = []
+        for j in range(3):
+            v_key = ",".join(map(str, vectors[i][j][:3]))
+            if v_key in vectors_key_list:
+                v_index = vectors_key_list.index(v_key)
+            else:
+                v_index = len(vectors_key_list)
+                vectors_key_list.append(v_key)
+                vectors_list.append(vectors[i][j][:3])
+            one_triangle.append(v_index + 1)
+
+        n_key = ",".join(map(str, normals[i][:3]))
+        if n_key in normals_key_list:
+            n_index = normals_key_list.index(n_key)
+        else:
+            n_index = len(normals_key_list)
+            normals_key_list.append(n_key)
+            normals_list.append(normals[i][:3])
+
+        # print(normals_list)
+        triangle_list.append((one_triangle, n_index + 1))
+
+    with open(obj_file, "w") as fh:
+        print("# {} {}".format(m.name, ''), file=fh)
+        print("", file=fh)
+        for v in vectors_list:
+            print("v {} {} {}".format(v[0], v[1], v[2]), file=fh)
+        for vn in normals_list:
+            print("vn {} {} {}".format(vn[0], vn[1], vn[2]), file=fh)
+        for t in triangle_list:
+            faces = t[0]
+            normal = t[1]
+
+            print("f {}//{} {}//{} {}//{}".format(
+                faces[0], normal,
+                faces[1], normal,
+                faces[2], normal,
+            ), file=fh)
